@@ -1,0 +1,18 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="WTT.CryptoDataFeed.Properties" GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <Setting Name="BaseSymbol" Type="System.String" Scope="User">
+      <Value Profile="(Default)">USD</Value>
+    </Setting>
+    <Setting Name="Exchange" Type="System.String" Scope="User">
+      <Value Profile="(Default)">CCCAGG</Value>
+    </Setting>
+    <Setting Name="WebSocket" Type="System.String" Scope="User">
+      <Value Profile="(Default)">https://streamer.cryptocompare.com/</Value>
+    </Setting>
+    <Setting Name="APIUrl" Type="System.String" Scope="User">
+      <Value Profile="(Default)">https://min-api.cryptocompare.com/</Value>
+    </Setting>
+  </Settings>
+</SettingsFile>
