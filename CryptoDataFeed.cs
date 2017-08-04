@@ -85,14 +85,14 @@ namespace WTT.CryptoDataFeed
             //...Re-connect to smybols in case of event
             _socket2.On(Socket.EVENT_CONNECT, () =>
             {
-                FireConnectionStatus("Connected to streaming socket: "+ socketAddress);
+                FireConnectionStatus("Connected to CryptoCompare streaming socket.");
                 //Ensure streaming for symbols
                 foreach (var sym in _symbols)
                 {
                     string list = "{ subs: ['5~CCCAGG~" + sym + "~"+BaseSymbol+"'] }";
                     var ob = JsonConvert.DeserializeObject<object>(list);
                     _socket2.Emit("SubAdd", ob);
-                    FireConnectionStatus("..emit:" + list);
+                    //FireConnectionStatus("..adding:" + list);
                 }
 
             });
@@ -186,7 +186,7 @@ namespace WTT.CryptoDataFeed
             //Format: {SubscriptionId}~{ExchangeName}~{FromSymbol}~{ToSymbol}'
             string subId = "{ subs: ['5~CCCAGG~" + symbol + "~" + BaseSymbol + "'] }";
 
-            FireConnectionStatus("Listening to" + subId);
+            FireConnectionStatus("Listening to " + symbol+" / "+ BaseSymbol);
             
             var eObj = JsonConvert.DeserializeObject<object>(subId);
 
@@ -215,7 +215,7 @@ namespace WTT.CryptoDataFeed
             
             string subId = "{ subs: ['5~CCCAGG~" + symbol + "~" + BaseSymbol + "'] }";
 
-            FireConnectionStatus("De-Listening to" + subId);
+            FireConnectionStatus("De-Listening to " + symbol + " / " + BaseSymbol);
 
             //'{SubscriptionId}~{ExchangeName}~{FromSymbol}~{ToSymbol}'
             var eObj = JsonConvert.DeserializeObject<object>(subId);
@@ -296,6 +296,7 @@ namespace WTT.CryptoDataFeed
             
             try
             {
+                //DEBUG: FireConnectionStatus(FormRequestString(_currentRequest.ChartSelection));
                 response = _client.DownloadString(FormRequestString(_currentRequest.ChartSelection));
             }
             catch (WebException exception)
@@ -349,7 +350,7 @@ namespace WTT.CryptoDataFeed
                 default:
                     MessageBox.Show("CryptoCompare supports only days, hours and minutes");
                     return "";
-                    break;
+                    
             }
 
             string requestUrl = Properties.Settings.Default.APIUrl+
@@ -365,33 +366,107 @@ namespace WTT.CryptoDataFeed
             ThreadPool.QueueUserWorkItem(
                 state => request.HistorySubscriber.OnHistoryIncome(request.ChartSelection.Symbol, new List<BarData>()));
         }
-
+       
         private void ProcessResponseAndSend(HistoryRequest request, string message)
         {
-
+            //failsafe...
             if (string.IsNullOrEmpty(message))
             {
                 SendNoHistory(request);
                 return;
             }
 
-            var cryptodataset =
+
+            List<dynamic> datasets = new List<dynamic>();
+
+            //get the data from the API call
+            var master_cryptodataset =
                         JsonConvert.DeserializeObject<dynamic>(message);
-            
-            var records = cryptodataset.Data;
-            
-            if (((ICollection)records).Count < 4)
+
+            //check for data
+            if (((ICollection)master_cryptodataset.Data).Count < 4)
             {
                 MessageBox.Show("Error: not enough data");
                 SendNoHistory(request);
                 return;
             }
 
-            List<BarData> retBars = FromOHLCVBars(records);
-           
+            //add to API return array
+            datasets.Add(master_cryptodataset.Data);
+            
+
+            //for minute requests, try to catch more data from API for a full range of  6 days history
+            if (request.ChartSelection.Periodicity == EPeriodicity.Minutely)
+            {
+                //get the earliest point of data available
+                var timeFrom = (long)master_cryptodataset.TimeFrom;
+                var dtimeFrom = DateTimeOffset.FromUnixTimeSeconds(timeFrom);
+                DateTime dtTimeFrom = dtimeFrom.DateTime;
+
+                var requestString = FormRequestString(request.ChartSelection);
+                
+                while (dtTimeFrom>(DateTime.UtcNow.AddDays(-6)))
+                {
+                    bool isFail = false;
+                    string response = string.Empty;
+                    
+                    try
+                    {
+                        //Debug: FireConnectionStatus(requestString + "&toTs=" + timeFrom);
+                        response = _client.DownloadString((requestString+"&toTs="+timeFrom));
+                    }
+                    catch
+                    {
+                        isFail = true;
+                    }
+
+                    if (isFail || string.IsNullOrEmpty(response))
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        //add to dataset
+                        var cryptodataset = JsonConvert.DeserializeObject<dynamic>(response);
+                        if (((ICollection) cryptodataset.Data).Count > 4)
+                        {
+                            datasets.Add(cryptodataset.Data);
+
+                            timeFrom = cryptodataset.TimeFrom;
+                            dtimeFrom = DateTimeOffset.FromUnixTimeSeconds((long) cryptodataset.TimeFrom);
+                            dtTimeFrom = dtimeFrom.DateTime;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                        
+                }
+
+                
+            }
+
+            //... convert API return values into bars
+            List<BarData> retBars = new List<BarData>();
+            foreach (var set in datasets)
+            {
+                List<BarData> _retBars = FromOHLCVBars(set);
+
+                foreach (var newbar in _retBars)
+                {
+                    //... skip overlapping bars based on different requests send
+                    if (retBars.Any(b => b.TradeDate == newbar.TradeDate))
+                        continue;
+
+                    retBars.Add(newbar);
+                }
+            }
+            
+            //...order
             retBars = retBars.OrderBy(data => data.TradeDate).ToList();
 
-            //if request`s bars amount was <= 0 then send all bars
+            //... if request`s bars amount was <= 0 then send all bars
             if (request.ChartSelection.Bars > 0)
             {
                 if (retBars.Count > request.ChartSelection.Bars)
