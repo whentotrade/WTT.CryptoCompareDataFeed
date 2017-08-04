@@ -91,7 +91,7 @@
       <HintPath>packages\WebSocket4Net.0.14.1\lib\net45\WebSocket4Net.dll</HintPath>
     </Reference>
     <Reference Include="WTT.IDataFeed">
-      <HintPath>..\WTT.IDataFeed\bin\Release\WTT.IDataFeed.dll</HintPath>
+      <HintPath>C:\WTT\WTT.IDataFeed.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
