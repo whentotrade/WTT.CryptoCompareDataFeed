@@ -104,7 +104,11 @@ namespace WTT.CryptoDataFeed
                     string d = (string)data;
                     
                     //Decode the socket from CryptoCompare with helper function
-                    var unpacked=CurrentUnpack(d);
+                    
+                try
+                {
+                    var unpacked = CurrentUnpack(d);
+               
 
                     if (unpacked != null)
                     {
@@ -127,7 +131,16 @@ namespace WTT.CryptoDataFeed
                             //FireConnectionStatus(priceUpate.Symbol+": " + currentPrice + " Time: "+ priceUpate.TradeTime);
                         }
                     }
+
+                }
+                catch
+                {
+                    //could not decode data from streaming socket
+                    //should not happen, but just in case...
+                    //FireConnectionStatus("Error unpacking quote.");
+                }
             });
+
             return true;
         }
 
@@ -357,7 +370,7 @@ namespace WTT.CryptoDataFeed
                 "data/"+ep+"?fsym=" + selection.Symbol + "&tsym="+BaseSymbol+"&limit=" +
                 (selection.Bars) + "&aggregate="+(int)selection.Interval+"&e="+Exchange; //"&toTs=" + unix;
             
-            //FireConnectionStatus("Get: " + requestUrl);
+            FireConnectionStatus("Get: " + requestUrl);
             return requestUrl;
         }
 
@@ -412,7 +425,7 @@ namespace WTT.CryptoDataFeed
                     
                     try
                     {
-                        //Debug: FireConnectionStatus(requestString + "&toTs=" + timeFrom);
+                        Debug: FireConnectionStatus(requestString + "&toTs=" + timeFrom);
                         response = _client.DownloadString((requestString+"&toTs="+timeFrom));
                     }
                     catch
@@ -427,19 +440,30 @@ namespace WTT.CryptoDataFeed
                     else
                     {
                         //add to dataset
-                        var cryptodataset = JsonConvert.DeserializeObject<dynamic>(response);
-                        if (((ICollection) cryptodataset.Data).Count > 4)
+                        try
                         {
-                            datasets.Add(cryptodataset.Data);
+                            var cryptodataset = JsonConvert.DeserializeObject<dynamic>(response);
 
-                            timeFrom = cryptodataset.TimeFrom;
-                            dtimeFrom = DateTimeOffset.FromUnixTimeSeconds((long) cryptodataset.TimeFrom);
-                            dtTimeFrom = dtimeFrom.DateTime;
+                            if (((ICollection)cryptodataset.Data).Count > 4)
+                            {
+                                datasets.Add(cryptodataset.Data);
+
+                                timeFrom = cryptodataset.TimeFrom;
+                                dtimeFrom = DateTimeOffset.FromUnixTimeSeconds((long)cryptodataset.TimeFrom);
+                                dtTimeFrom = dtimeFrom.DateTime;
+                            }
+                            else
+                            {
+                                break;
+                            }
                         }
-                        else
+                        catch (Exception e)
                         {
+                            MessageBox.Show("Could not get crypto dataset: " + e.Message);
                             break;
                         }
+
+                        
                     }
                         
                 }
