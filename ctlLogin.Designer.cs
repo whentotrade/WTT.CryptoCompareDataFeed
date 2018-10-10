@@ -1,4 +1,4 @@
-﻿namespace WTT.CryptoDataFeed
+﻿namespace WTT.CryptoCompareDataFeed
 {
     partial class ctlLogin
     {

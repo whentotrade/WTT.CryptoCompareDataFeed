@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.26430.16
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WTT.CryptoDataFeed", "WTT.CryptoDataFeed.csproj", "{7C4C7F0A-F7CE-4FAD-91F5-5091457B6DAD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WTT.CryptoCompareDataFeed", "WTT.CryptoCompareDataFeed.csproj", "{7C4C7F0A-F7CE-4FAD-91F5-5091457B6DAD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -24,5 +24,8 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {91EB4534-A359-4711-AA89-DA995F797352}
 	EndGlobalSection
 EndGlobal

@@ -1,85 +1,87 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
-using System.Net;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Windows.Forms;
-using WTT.IDataFeed;
 using Newtonsoft.Json;
-using Quobject.EngineIoClientDotNet.Modules;
 using Quobject.SocketIoClientDotNet.Client;
-using Socket = Quobject.SocketIoClientDotNet.Client.Socket;
+using WTT.CryptoCompareDataFeed.Properties;
+using WTT.IDataFeed;
 
-namespace WTT.CryptoDataFeed
+namespace WTT.CryptoCompareDataFeed
 {
-    public class CryptoDataFeed : IDataFeed.IDataFeed
+    public class CryptoCompareDataFeed : IDataFeed.IDataFeed
     {
+        private readonly WebClient _client = new WebClient();
+
+        private readonly ctlLogin _loginForm = new ctlLogin();
+
+        private readonly Queue<HistoryRequest> _requests = new Queue<HistoryRequest>();
+
+        private bool _isWebClientBusy;
+
+        private Socket _socket2;
+
+        private string BaseSymbol { get; set; }
+        private string Exchange { get; set; }
+
+        public event EventHandler<MessageEventArgs> OnNewMessage;
+        public event EventHandler<DataFeedStatusEventArgs> OnNewStatus;
+        public event EventHandler<DataFeedStatusTimeEventArgs> OnNewStatusTime;
+
+        #region Not supported DataFeed methods
+
+        public double GetSymbolOffset(string symbol)
+        {
+            return 0.0;
+        }
+
+        #endregion
+
         private class HistoryRequest
         {
             public ChartSelection ChartSelection { get; set; }
             public IHistorySubscriber HistorySubscriber { get; set; }
         }
 
-        private readonly ctlLogin _loginForm = new ctlLogin();
+        #region Login/logout
 
-        private string BaseSymbol { get; set; }
-        private string Exchange { get; set; }
-
-        private readonly WebClient _client = new WebClient();
-        
-        private readonly Queue<HistoryRequest> _requests = new Queue<HistoryRequest>();
-
-        private bool _isWebClientBusy;
-
-        public event EventHandler<MessageEventArgs> OnNewMessage;
-        public event EventHandler<DataFeedStatusEventArgs> OnNewStatus;
-        public event EventHandler<DataFeedStatusTimeEventArgs> OnNewStatusTime;
-
-        private Socket _socket2;
-
-        public CryptoDataFeed()
-        {
-            //DLL Loaded...
-        }
+        public string Name => "CryptoCompare";
 
         public Control GetLoginControl()
         {
             return _loginForm;
         }
 
-        #region Login/logout
-
-        public string Name
-        {
-            get { return "Crypto"; }
-        }
-
         public bool ValidateLoginParams()
         {
-
             //Check for valid BaseSymbol and Exchange
             //tbd
 
             BaseSymbol = _loginForm.BaseSymbol;
-            Properties.Settings.Default.BaseSymbol = BaseSymbol;
+            Settings.Default.BaseSymbol = BaseSymbol;
 
             Exchange = _loginForm.Exchange;
-            Properties.Settings.Default.Exchange = Exchange;
+            Settings.Default.Exchange = Exchange;
             try
             {
-                Properties.Settings.Default.Save();
+                Settings.Default.Save();
             }
-            catch {  }
-            
+            catch
+            {
+            }
+
             return true;
-        }   
-        
+        }
+
         public bool Login()
         {
             //...Initiate the WebSocket
-            string socketAddress = Properties.Settings.Default.WebSocket;
+            var socketAddress = Settings.Default.WebSocket;
             _socket2 = IO.Socket(socketAddress);
 
             //...Re-connect to smybols in case of event
@@ -89,26 +91,25 @@ namespace WTT.CryptoDataFeed
                 //Ensure streaming for symbols
                 foreach (var sym in _symbols)
                 {
-                    string list = "{ subs: ['5~CCCAGG~" + sym + "~"+BaseSymbol+"'] }";
+                    var list = "{ subs: ['5~CCCAGG~" + sym + "~" + BaseSymbol + "'] }";
                     var ob = JsonConvert.DeserializeObject<object>(list);
                     _socket2.Emit("SubAdd", ob);
                     //FireConnectionStatus("..adding:" + list);
                 }
-
             });
 
 
             //... Monitor incoming messages
-            _socket2.On("m", (data) =>
+            _socket2.On("m", data =>
             {
-                    string d = (string)data;
-                    
-                    //Decode the socket from CryptoCompare with helper function
-                    
+                var d = (string) data;
+
+                //Decode the socket from CryptoCompare with helper function
+
                 try
                 {
                     var unpacked = CurrentUnpack(d);
-               
+
 
                     if (unpacked != null)
                     {
@@ -117,13 +118,14 @@ namespace WTT.CryptoDataFeed
                         //FireConnectionStatus("U: " + result);
 
                         //Check if we have received a price update message
-                        string currentPrice;
-                        if (unpacked.TryGetValue("PRICE", out currentPrice))
+                        if (unpacked.TryGetValue("PRICE", out var currentPrice))
                         {
-                            var priceUpate = new QuoteData();
-                            priceUpate.Symbol = unpacked["FROMSYMBOL"];
-                            priceUpate.Price = double.Parse(currentPrice, System.Globalization.CultureInfo.InvariantCulture);
-                            priceUpate.TradeTime = DateTime.UtcNow;
+                            var priceUpate = new QuoteData
+                            {
+                                Symbol = unpacked["FROMSYMBOL"],
+                                Price = double.Parse(currentPrice, CultureInfo.InvariantCulture),
+                                TradeTime = DateTime.UtcNow
+                            };
 
                             //Update charts
                             BrodcastQuote(priceUpate);
@@ -131,7 +133,6 @@ namespace WTT.CryptoDataFeed
                             //FireConnectionStatus(priceUpate.Symbol+": " + currentPrice + " Time: "+ priceUpate.TradeTime);
                         }
                     }
-
                 }
                 catch
                 {
@@ -151,6 +152,7 @@ namespace WTT.CryptoDataFeed
                 _socket2.Disconnect();
                 _socket2.Close();
             }
+
             FireConnectionStatus("Disconnected from " + Name);
             return true;
         }
@@ -158,7 +160,9 @@ namespace WTT.CryptoDataFeed
         #endregion
 
         #region Realtime-feed
+
         private readonly List<IDataSubscriber> _subscribers = new List<IDataSubscriber>();
+
         public void InitDataSubscriber(IDataSubscriber subscriber)
         {
             lock (_subscribers)
@@ -166,7 +170,6 @@ namespace WTT.CryptoDataFeed
                 if (!_subscribers.Contains(subscriber))
                     _subscribers.Add(subscriber);
             }
-
         }
 
         public void RemoveDataSubscriber(IDataSubscriber subscriber)
@@ -182,6 +185,7 @@ namespace WTT.CryptoDataFeed
         }
 
         private readonly List<string> _symbols = new List<string>();
+
         public void Subscribe(string symbol)
         {
             //failsafe...
@@ -193,18 +197,19 @@ namespace WTT.CryptoDataFeed
 
             lock (_symbols)
             {
-               _symbols.Add(symbol);
+                _symbols.Add(symbol);
             }
 
             //Format: {SubscriptionId}~{ExchangeName}~{FromSymbol}~{ToSymbol}'
-            string subId = "{ subs: ['5~CCCAGG~" + symbol + "~" + BaseSymbol + "'] }";
+            var subId = "{ subs: ['5~CCCAGG~" + symbol + "~" + BaseSymbol + "'] }";
 
-            FireConnectionStatus("Listening to " + symbol+" / "+ BaseSymbol);
-            
+            FireConnectionStatus("Listening to " + symbol + " / " + BaseSymbol);
+
             var eObj = JsonConvert.DeserializeObject<object>(subId);
 
             _socket2.Connect();
             _socket2.Emit("SubAdd", eObj);
+            //_socket2.Emit("SubAdd", JObject.FromObject(eObj));
         }
 
         public void UnSubscribe(string symbol)
@@ -225,36 +230,24 @@ namespace WTT.CryptoDataFeed
             {
                 _symbols.Remove(symbol);
             }
-            
-            string subId = "{ subs: ['5~CCCAGG~" + symbol + "~" + BaseSymbol + "'] }";
+
+            var subId = "{ subs: ['5~CCCAGG~" + symbol + "~" + BaseSymbol + "'] }";
 
             FireConnectionStatus("De-Listening to " + symbol + " / " + BaseSymbol);
 
             //'{SubscriptionId}~{ExchangeName}~{FromSymbol}~{ToSymbol}'
             var eObj = JsonConvert.DeserializeObject<object>(subId);
-            
+
             _socket2.Connect();
             _socket2.Emit("SubRemove", eObj);
-            
-            
         }
 
         private void BrodcastQuote(QuoteData quote)
         {
             lock (_subscribers)
             {
-                foreach (IDataSubscriber subscriber in _subscribers)
-                {
-                    subscriber.OnPriceUpdate(quote);
-                }
+                foreach (var subscriber in _subscribers) subscriber.OnPriceUpdate(quote);
             }
-        }
-        #endregion
-
-        #region Not supported DataFeed methods
-        public double GetSymbolOffset(string symbol)
-        {
-            return 0.0;
         }
 
         #endregion
@@ -263,7 +256,7 @@ namespace WTT.CryptoDataFeed
 
         public void GetHistory(ChartSelection selection, IHistorySubscriber subscriber)
         {
-            HistoryRequest request = new HistoryRequest() {ChartSelection = selection, HistorySubscriber = subscriber};
+            var request = new HistoryRequest {ChartSelection = selection, HistorySubscriber = subscriber};
             request.ChartSelection.Symbol = request.ChartSelection.Symbol.ToUpper();
 
             if (!ValidateRequest(request))
@@ -281,9 +274,9 @@ namespace WTT.CryptoDataFeed
                    request.ChartSelection != null &&
                    !string.IsNullOrEmpty(request.ChartSelection.Symbol) &&
                    (request.ChartSelection.Periodicity == EPeriodicity.Daily ||
-                   request.ChartSelection.Periodicity == EPeriodicity.Hourly ||
-                   request.ChartSelection.Periodicity == EPeriodicity.Minutely
-                    ) &&
+                    request.ChartSelection.Periodicity == EPeriodicity.Hourly ||
+                    request.ChartSelection.Periodicity == EPeriodicity.Minutely
+                   ) &&
                    request.HistorySubscriber != null &&
                    request.ChartSelection.ChartType == EChartType.TimeBased;
         }
@@ -301,12 +294,12 @@ namespace WTT.CryptoDataFeed
 
             _isWebClientBusy = true;
 
-            HistoryRequest _currentRequest = _requests.Dequeue();
+            var _currentRequest = _requests.Dequeue();
 
-            bool isFail = false;
-            string response = string.Empty;
+            var isFail = false;
+            var response = string.Empty;
 
-            
+
             try
             {
                 //DEBUG: FireConnectionStatus(FormRequestString(_currentRequest.ChartSelection));
@@ -316,18 +309,19 @@ namespace WTT.CryptoDataFeed
             {
                 try
                 {
-                    var httpWebResponse = exception.Response as HttpWebResponse;
-                    if (httpWebResponse != null)
+                    if (exception.Response is HttpWebResponse httpWebResponse)
                     {
                         var resp = new StreamReader(httpWebResponse.GetResponseStream()).ReadToEnd();
                         dynamic obj = JsonConvert.DeserializeObject(resp);
                         var messageFromServer = obj.error_message;
                         MessageBox.Show("Server Exception: " + messageFromServer);
                     }
-                } catch { }
+                }
+                catch
+                {
+                }
 
                 isFail = true;
-
             }
 
             if (isFail || string.IsNullOrEmpty(response))
@@ -346,12 +340,11 @@ namespace WTT.CryptoDataFeed
             //https,//www.cryptocompare.com/api/#-api-data-histoday-
 
             //Set correct endpoint
-            string ep = "";
+            var ep = "";
             switch (selection.Periodicity)
             {
-
                 case EPeriodicity.Hourly:
-                    ep=@"histohour";
+                    ep = @"histohour";
                     break;
                 case EPeriodicity.Minutely:
                     ep = @"histominute";
@@ -363,13 +356,13 @@ namespace WTT.CryptoDataFeed
                 default:
                     MessageBox.Show("CryptoCompare supports only days, hours and minutes");
                     return "";
-                    
             }
 
-            string requestUrl = Properties.Settings.Default.APIUrl+
-                "data/"+ep+"?fsym=" + selection.Symbol + "&tsym="+BaseSymbol+"&limit=" +
-                (selection.Bars) + "&aggregate="+(int)selection.Interval+"&e="+Exchange; //"&toTs=" + unix;
-            
+            var requestUrl = Settings.Default.APIUrl +
+                             "data/" + ep + "?fsym=" + selection.Symbol + "&tsym=" + BaseSymbol + "&limit=" +
+                             selection.Bars + "&aggregate=" + (int) selection.Interval + "&e=" +
+                             Exchange; //"&toTs=" + unix;
+
             FireConnectionStatus("Get: " + requestUrl);
             return requestUrl;
         }
@@ -379,7 +372,7 @@ namespace WTT.CryptoDataFeed
             ThreadPool.QueueUserWorkItem(
                 state => request.HistorySubscriber.OnHistoryIncome(request.ChartSelection.Symbol, new List<BarData>()));
         }
-       
+
         private void ProcessResponseAndSend(HistoryRequest request, string message)
         {
             //failsafe...
@@ -390,14 +383,14 @@ namespace WTT.CryptoDataFeed
             }
 
 
-            List<dynamic> datasets = new List<dynamic>();
+            var datasets = new List<dynamic>();
 
             //get the data from the API call
             var master_cryptodataset =
-                        JsonConvert.DeserializeObject<dynamic>(message);
+                JsonConvert.DeserializeObject<dynamic>(message);
 
             //check for data
-            if (((ICollection)master_cryptodataset.Data).Count < 4)
+            if (((ICollection) master_cryptodataset.Data).Count < 4)
             {
                 MessageBox.Show("Error: not enough data");
                 SendNoHistory(request);
@@ -406,27 +399,28 @@ namespace WTT.CryptoDataFeed
 
             //add to API return array
             datasets.Add(master_cryptodataset.Data);
-            
+
 
             //for minute requests, try to catch more data from API for a full range of  6 days history
             if (request.ChartSelection.Periodicity == EPeriodicity.Minutely)
             {
                 //get the earliest point of data available
-                var timeFrom = (long)master_cryptodataset.TimeFrom;
+                var timeFrom = (long) master_cryptodataset.TimeFrom;
                 var dtimeFrom = DateTimeOffset.FromUnixTimeSeconds(timeFrom);
-                DateTime dtTimeFrom = dtimeFrom.DateTime;
+                var dtTimeFrom = dtimeFrom.DateTime;
 
                 var requestString = FormRequestString(request.ChartSelection);
-                
-                while (dtTimeFrom>(DateTime.UtcNow.AddDays(-6)))
+
+                while (dtTimeFrom > DateTime.UtcNow.AddDays(-6))
                 {
-                    bool isFail = false;
-                    string response = string.Empty;
-                    
+                    var isFail = false;
+                    var response = string.Empty;
+
                     try
                     {
-                        Debug: FireConnectionStatus(requestString + "&toTs=" + timeFrom);
-                        response = _client.DownloadString((requestString+"&toTs="+timeFrom));
+                        Debug:
+                        FireConnectionStatus(requestString + "&toTs=" + timeFrom);
+                        response = _client.DownloadString(requestString + "&toTs=" + timeFrom);
                     }
                     catch
                     {
@@ -434,48 +428,37 @@ namespace WTT.CryptoDataFeed
                     }
 
                     if (isFail || string.IsNullOrEmpty(response))
-                    {
                         break;
-                    }
-                    else
+                    try
                     {
-                        //add to dataset
-                        try
+                        var cryptodataset = JsonConvert.DeserializeObject<dynamic>(response);
+
+                        if (((ICollection) cryptodataset.Data).Count > 4)
                         {
-                            var cryptodataset = JsonConvert.DeserializeObject<dynamic>(response);
+                            datasets.Add(cryptodataset.Data);
 
-                            if (((ICollection)cryptodataset.Data).Count > 4)
-                            {
-                                datasets.Add(cryptodataset.Data);
-
-                                timeFrom = cryptodataset.TimeFrom;
-                                dtimeFrom = DateTimeOffset.FromUnixTimeSeconds((long)cryptodataset.TimeFrom);
-                                dtTimeFrom = dtimeFrom.DateTime;
-                            }
-                            else
-                            {
-                                break;
-                            }
+                            timeFrom = cryptodataset.TimeFrom;
+                            dtimeFrom = DateTimeOffset.FromUnixTimeSeconds((long) cryptodataset.TimeFrom);
+                            dtTimeFrom = dtimeFrom.DateTime;
                         }
-                        catch (Exception e)
+                        else
                         {
-                            MessageBox.Show("Could not get crypto dataset: " + e.Message);
                             break;
                         }
-
-                        
                     }
-                        
+                    catch (Exception e)
+                    {
+                        MessageBox.Show("Could not get crypto dataset: " + e.Message);
+                        break;
+                    }
                 }
-
-                
             }
 
             //... convert API return values into bars
-            List<BarData> retBars = new List<BarData>();
+            var retBars = new List<BarData>();
             foreach (var set in datasets)
             {
-                List<BarData> _retBars = FromOHLCVBars(set);
+                IEnumerable<BarData> _retBars = FromOHLCVBars(set);
 
                 foreach (var newbar in _retBars)
                 {
@@ -486,42 +469,40 @@ namespace WTT.CryptoDataFeed
                     retBars.Add(newbar);
                 }
             }
-            
+
             //...order
             retBars = retBars.OrderBy(data => data.TradeDate).ToList();
 
             //... if request`s bars amount was <= 0 then send all bars
             if (request.ChartSelection.Bars > 0)
-            {
                 if (retBars.Count > request.ChartSelection.Bars)
                     retBars = retBars.Skip(retBars.Count - request.ChartSelection.Bars).ToList();
-            }
 
             ThreadPool.QueueUserWorkItem(
                 state => request.HistorySubscriber.OnHistoryIncome(request.ChartSelection.Symbol, retBars));
         }
 
-        private List<BarData> FromOHLCVBars(dynamic records)
+        private IEnumerable<BarData> FromOHLCVBars(dynamic records)
         {
-            int count = ((ICollection) records).Count;
-            
-            List<BarData> retBars = new List<BarData>(count);
+            var count = ((ICollection) records).Count;
+
+            var retBars = new List<BarData>(count);
 
             foreach (var observation in records)
             {
-                BarData barData = new BarData();
+                var barData = new BarData();
 
                 try
                 {
-                    var dto = DateTimeOffset.FromUnixTimeSeconds((long)observation.time);
-                    DateTime dt = dto.DateTime;
+                    var dto = DateTimeOffset.FromUnixTimeSeconds((long) observation.time);
+                    var dt = dto.DateTime;
 
                     barData.TradeDate = dt;
 
-                    barData.Open = (double)observation.open;
-                    barData.High = (double)observation.high;
-                    barData.Low = (double)observation.low;
-                    barData.Close = (double)observation.close;
+                    barData.Open = (double) observation.open;
+                    barData.High = (double) observation.high;
+                    barData.Low = (double) observation.low;
+                    barData.Close = (double) observation.close;
                     //No Volume, or add barData.Volume =...
                 }
                 catch (Exception ex)
@@ -530,10 +511,10 @@ namespace WTT.CryptoDataFeed
                     continue;
                 }
 
-                if(barData.TradeDate == default (DateTime))
+                if (barData.TradeDate == default(DateTime))
                     continue;
 
-                if (barData.Close!=0) retBars.Add(barData); // Dont add empty field with no close...!
+                if (barData.Close != 0) retBars.Add(barData); // Dont add empty field with no close...!
             }
 
             return retBars;
@@ -545,37 +526,84 @@ namespace WTT.CryptoDataFeed
 
         private void FireConnectionStatus(string message)
         {
-            if (OnNewStatus != null)
-                OnNewMessage(this, new MessageEventArgs() { Message = message, Icon = OutputIcon.Warning });
+            OnNewMessage?.Invoke(this, new MessageEventArgs {Message = message, Icon = OutputIcon.Warning});
         }
 
         //Helper function to decode incoming messages from CryptoCompare API WebSocket
-        readonly Dictionary<string, int> _currentFields = new Dictionary<string, int>
+        private readonly Dictionary<string, int> _currentFields = new Dictionary<string, int>
         {
-            { "TYPE"            , 0x0       // hex for binary 0, it is a special case of fields that are always there
-          },{ "MARKET"          , 0x0       // hex for binary 0, it is a special case of fields that are always there
-          },{ "FROMSYMBOL"      , 0x0       // hex for binary 0, it is a special case of fields that are always there
-          },{ "TOSYMBOL"        , 0x0       // hex for binary 0, it is a special case of fields that are always there
-          },{ "FLAGS"           , 0x0       // hex for binary 0, it is a special case of fields that are always there
-          },{ "PRICE"           , 0x1       // hex for binary 1
-          },{ "BID"             , 0x2       // hex for binary 10
-          },{ "OFFER"           , 0x4       // hex for binary 100
-          },{ "LASTUPDATE"      , 0x8       // hex for binary 1000
-          },{ "AVG"             , 0x10      // hex for binary 10000
-          },{ "LASTVOLUME"      , 0x20      // hex for binary 100000
-          },{ "LASTVOLUMETO"    , 0x40      // hex for binary 1000000
-          },{ "LASTTRADEID"     , 0x80      // hex for binary 10000000
-          },{ "VOLUMEHOUR"      , 0x100     // hex for binary 100000000
-          },{ "VOLUMEHOURTO"    , 0x200     // hex for binary 1000000000
-          },{ "VOLUME24HOUR"    , 0x400     // hex for binary 10000000000
-          },{ "VOLUME24HOURTO"  , 0x800     // hex for binary 100000000000
-          },{ "OPENHOUR"        , 0x1000    // hex for binary 1000000000000
-          },{ "HIGHHOUR"        , 0x2000    // hex for binary 10000000000000
-          },{ "LOWHOUR"         , 0x4000    // hex for binary 100000000000000
-          },{ "OPEN24HOUR"      , 0x8000    // hex for binary 1000000000000000
-          },{ "HIGH24HOUR"      , 0x10000   // hex for binary 10000000000000000
-          },{ "LOW24HOUR"       , 0x20000   // hex for binary 100000000000000000
-          },{ "LASTMARKET"      , 0x40000   // hex for binary 1000000000000000000, this is a special case and will only appear on CCCAGG messages
+            {
+                "TYPE", 0x0 // hex for binary 0, it is a special case of fields that are always there
+            },
+            {
+                "MARKET", 0x0 // hex for binary 0, it is a special case of fields that are always there
+            },
+            {
+                "FROMSYMBOL", 0x0 // hex for binary 0, it is a special case of fields that are always there
+            },
+            {
+                "TOSYMBOL", 0x0 // hex for binary 0, it is a special case of fields that are always there
+            },
+            {
+                "FLAGS", 0x0 // hex for binary 0, it is a special case of fields that are always there
+            },
+            {
+                "PRICE", 0x1 // hex for binary 1
+            },
+            {
+                "BID", 0x2 // hex for binary 10
+            },
+            {
+                "OFFER", 0x4 // hex for binary 100
+            },
+            {
+                "LASTUPDATE", 0x8 // hex for binary 1000
+            },
+            {
+                "AVG", 0x10 // hex for binary 10000
+            },
+            {
+                "LASTVOLUME", 0x20 // hex for binary 100000
+            },
+            {
+                "LASTVOLUMETO", 0x40 // hex for binary 1000000
+            },
+            {
+                "LASTTRADEID", 0x80 // hex for binary 10000000
+            },
+            {
+                "VOLUMEHOUR", 0x100 // hex for binary 100000000
+            },
+            {
+                "VOLUMEHOURTO", 0x200 // hex for binary 1000000000
+            },
+            {
+                "VOLUME24HOUR", 0x400 // hex for binary 10000000000
+            },
+            {
+                "VOLUME24HOURTO", 0x800 // hex for binary 100000000000
+            },
+            {
+                "OPENHOUR", 0x1000 // hex for binary 1000000000000
+            },
+            {
+                "HIGHHOUR", 0x2000 // hex for binary 10000000000000
+            },
+            {
+                "LOWHOUR", 0x4000 // hex for binary 100000000000000
+            },
+            {
+                "OPEN24HOUR", 0x8000 // hex for binary 1000000000000000
+            },
+            {
+                "HIGH24HOUR", 0x10000 // hex for binary 10000000000000000
+            },
+            {
+                "LOW24HOUR", 0x20000 // hex for binary 100000000000000000
+            },
+            {
+                "LASTMARKET",
+                0x40000 // hex for binary 1000000000000000000, this is a special case and will only appear on CCCAGG messages
             }
         };
 
@@ -583,7 +611,6 @@ namespace WTT.CryptoDataFeed
         //helper function converted from JS example
         private Dictionary<string, string> CurrentUnpack(string value)
         {
-
             {
                 var valuesArray = value.Split('~');
                 var valuesArrayLenght = valuesArray.Length;
@@ -593,12 +620,12 @@ namespace WTT.CryptoDataFeed
                 var mask = valuesArray[valuesArrayLenght - 1];
                 var maskInt = Convert.ToInt32(mask, 16);
 
-                Dictionary<string, string> unpackedCurrent = new Dictionary<string, string>();
+                var unpackedCurrent = new Dictionary<string, string>();
 
-                int currentField = 0;
+                var currentField = 0;
                 foreach (var property in _currentFields.Keys)
                 {
-                    bool hasBit = (maskInt & _currentFields[property]) != 0;
+                    var hasBit = (maskInt & _currentFields[property]) != 0;
 
                     if (_currentFields[property] == 0)
                     {
@@ -606,7 +633,9 @@ namespace WTT.CryptoDataFeed
                         {
                             unpackedCurrent[property] = valuesArray[currentField];
                         }
-                        catch { }
+                        catch
+                        {
+                        }
 
                         currentField++;
                     }
@@ -615,28 +644,31 @@ namespace WTT.CryptoDataFeed
                         //i know this is a hack, for cccagg, future code please don't hate me:(, i did this to avoid
                         //subscribing to trades as well in order to show the last market
                         if (property == "LASTMARKET")
-                        {
                             try
                             {
                                 unpackedCurrent[property] = valuesArray[currentField];
                             }
-                            catch { }
-                        }
+                            catch
+                            {
+                            }
                         else
-                        {
                             try
                             {
                                 unpackedCurrent[property] = valuesArray[currentField];
                             }
-                            catch { }
-                        }
+                            catch
+                            {
+                            }
+
                         currentField++;
                     }
                 }
 
                 return unpackedCurrent;
-            };
+            }
+            
         }
+
         #endregion
     }
 }

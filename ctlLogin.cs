@@ -1,36 +1,31 @@
-﻿using System.Windows.Forms;
+﻿using System;
+using System.Diagnostics;
+using System.Windows.Forms;
+using WTT.CryptoCompareDataFeed.Properties;
 
-namespace WTT.CryptoDataFeed
+namespace WTT.CryptoCompareDataFeed
 {
     public partial class ctlLogin : UserControl
     {
-        public string BaseSymbol
-        {
-            get { return txtBaseSymbol.Text.Trim(); }
-        }
-
-        public string Exchange
-        {
-            get { return txtExchange.Text.Trim(); }
-        }
-
         public ctlLogin()
         {
             InitializeComponent();
         }
 
-        private void ctlLogin_Load(object sender, System.EventArgs e)
+        public string BaseSymbol => txtBaseSymbol.Text.Trim();
+
+        public string Exchange => txtExchange.Text.Trim();
+
+        private void ctlLogin_Load(object sender, EventArgs e)
         {
-            txtBaseSymbol.Text = Properties.Settings.Default.BaseSymbol;
-            txtExchange.Text = Properties.Settings.Default.Exchange;
+            txtBaseSymbol.Text = Settings.Default.BaseSymbol;
+            txtExchange.Text = Settings.Default.Exchange;
         }
 
         private void linkLabel1_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
             // Navigate to a URL.
-            System.Diagnostics.Process.Start("https://www.cryptocompare.com/api/#");
+            Process.Start("https://www.cryptocompare.com/api/#");
         }
-
-      
     }
 }
