@@ -15,7 +15,7 @@ Use this repository as template. Change and connect to the datafeed of your choi
  - [Book]: Decoding the Hidden Market Rhythm
  - [Charting Platform]: whentotrade website
  - [API Documentation]: API Reference Guide
- - [Scope of Data]: Current API integration scope
+
   
   [Book]: <http://a.co/d/i9YlX4c>
   [Charting Platform]: <https://www.whentotrade.com>
